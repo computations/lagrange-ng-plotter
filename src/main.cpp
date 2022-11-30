@@ -21,7 +21,7 @@
     260 Panama Street, Stanford, CA 94305, USA
 */
 
-#include "genesis/genesis.hpp"
+#include <genesis/genesis.hpp>
 
 using namespace genesis;
 using namespace genesis::tree;
@@ -43,29 +43,27 @@ struct CLIOptions {
 SvgGroup make_random_pie_chart(std::vector<Color> const &colors) {
   // Super simple, no need for C++ random classes for now.
   std::vector<double> values;
-  size_t const n = 2 + rand() % 8;
-  for (size_t i = 0; i < n; ++i) {
-    values.emplace_back(rand() % 10);
-  }
+  size_t const        n = 2 + rand() % 8;
+  for (size_t i = 0; i < n; ++i) { values.emplace_back(rand() % 10); }
 
   // Make the pie chart.
   return make_svg_pie_chart(values, colors, 10.0);
 }
 
-SvgDocument make_pie_chart_tree(Tree const &tree,
-                                LayoutParameters const &params,
+SvgDocument make_pie_chart_tree(Tree const               &tree,
+                                LayoutParameters const   &params,
                                 std::vector<Color> const &colors) {
   // Make a layout tree. We need a pointer to it in order to allow for the two
   // different classes (circular/rectancular) to be returned here. Make it a
   // unique ptr for automatic cleanup.
   auto layout = [&]() -> std::unique_ptr<LayoutBase> {
     if (params.shape == LayoutShape::kCircular) {
-      return utils::make_unique<CircularLayout>(tree, params.type,
-                                                params.ladderize);
+      return utils::make_unique<CircularLayout>(
+          tree, params.type, params.ladderize);
     }
     if (params.shape == LayoutShape::kRectangular) {
-      return utils::make_unique<RectangularLayout>(tree, params.type,
-                                                   params.ladderize);
+      return utils::make_unique<RectangularLayout>(
+          tree, params.type, params.ladderize);
     }
     throw std::runtime_error("Unknown Tree shape parameter.");
   }();
@@ -73,9 +71,7 @@ SvgDocument make_pie_chart_tree(Tree const &tree,
   // Add pie chars at the leaf nodes.
   auto node_shapes = std::vector<utils::SvgGroup>(layout->tree().node_count());
   for (size_t i = 0; i < layout->tree().node_count(); ++i) {
-    if (is_leaf(layout->tree().node_at(i))) {
-      continue;
-    }
+    if (is_leaf(layout->tree().node_at(i))) { continue; }
     node_shapes[i] = make_random_pie_chart(colors);
   }
   layout->set_node_shapes(node_shapes);
@@ -84,7 +80,8 @@ SvgDocument make_pie_chart_tree(Tree const &tree,
   return layout->to_svg_document();
 }
 
-void add_color_list_legend(SvgDocument &svg_doc, LayoutParameters const &params,
+void add_color_list_legend(SvgDocument              &svg_doc,
+                           LayoutParameters const   &params,
                            std::vector<Color> const &colors) {
   // For testing, we just make a fake list of labels, numerbing the colors...
   std::vector<std::string> color_labels;
@@ -128,13 +125,13 @@ void add_color_list_legend(SvgDocument &svg_doc, LayoutParameters const &params,
 }
 
 CLIOptions parse_options(int argc, char **argv) {
-  CLIOptions options;
+  CLIOptions           options;
   static struct option long_options[] = {{"results", required_argument, 0, 0},
                                          {"output", required_argument, 0, 0},
                                          {0, 0, 0, 0}};
-  int c = 0;
-  int option_index = 0;
-  optind = 0;
+  int                  c              = 0;
+  int                  option_index   = 0;
+  optind                              = 0;
 
   while ((c = getopt_long_only(argc, argv, "", long_options, &option_index)) ==
          0) {
@@ -185,7 +182,7 @@ int main(int argc, char **argv) {
   utils::Logging::details.time = true;
   LOG_INFO << "Started";
 
-  auto options = parse_options(argc, argv);
+  auto options      = parse_options(argc, argv);
   auto results_json = parse_results_json(options.results_json_filename);
 
   // Read the tree.
@@ -197,10 +194,10 @@ int main(int argc, char **argv) {
   // Set the tree params as needed.
   LayoutParameters params;
   // params.shape = LayoutShape::kCircular;
-  params.shape = LayoutShape::kRectangular;
-  params.type = LayoutType::kCladogram;
-  params.ladderize = true;
-  params.stroke = SvgStroke(Color(), 1.0);
+  params.shape           = LayoutShape::kRectangular;
+  params.type            = LayoutType::kCladogram;
+  params.ladderize       = true;
+  params.stroke          = SvgStroke(Color(), 1.0);
   params.stroke.line_cap = utils::SvgStroke::LineCap::kRound;
 
   // For testing, we use one of our default color schemes for categorical data.
