@@ -2,7 +2,7 @@ include(FetchContent)
 
 FetchContent_Declare(genesis
     GIT_REPOSITORY https://github.com/lczech/genesis.git
-    GIT_TAG v0.28.1)
+    GIT_TAG 6bdcb7319fa6cb4c3b7468cee2e023e3c859651c)
 
 FetchContent_GetProperties(genesis)
 if(NOT genesis_POPULATED)
