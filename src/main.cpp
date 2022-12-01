@@ -65,8 +65,16 @@ struct NodeResult {
 struct Attributes {
   size_t regions;
   size_t state_count;
+  size_t max_areas;
   string newick_tree;
 };
+
+// Stolen code from lagrange-ng to compute the next dist
+inline auto next_dist(size_t d, uint32_t n) -> size_t {
+  d += 1;
+  while (static_cast<size_t>(__builtin_popcountll(d)) > n) { d++; }
+  return d;
+}
 
 std::vector<double> get_node_values(const vector<NodeResult> &node_results,
                                     size_t                    node_id) {
@@ -92,8 +100,9 @@ SvgGroup make_random_pie_chart(std::vector<Color> const &colors) {
   return make_svg_pie_chart(values, colors, 10.0);
 }
 
-SvgDocument make_pie_chart_tree(Tree const               &tree,
+SvgDocument make_pie_chart_tree(Tree                     &tree,
                                 vector<NodeResult> const &node_results,
+                                vector<size_t> const     &node_map,
                                 LayoutParameters const   &params,
                                 std::vector<Color> const &colors) {
   // Make a layout tree. We need a pointer to it in order to allow for the two
@@ -115,16 +124,17 @@ SvgDocument make_pie_chart_tree(Tree const               &tree,
   auto node_shapes = std::vector<utils::SvgGroup>(layout->tree().node_count());
   for (size_t i = 0; i < layout->tree().node_count(); ++i) {
     if (is_leaf(layout->tree().node_at(i))) { continue; }
-    // node_shapes[i] = make_random_pie_chart(colors);
+
     node_shapes[i] = make_svg_pie_chart(
-        get_node_values(
-            node_results,
-            std::stoi(layout->tree().node_at(i).data<CommonNodeData>().name)),
-        colors,
-        10.0);
+        get_node_values(node_results, node_map[i]), colors, 10.0);
   }
   layout->set_node_shapes(node_shapes);
   // layout->set_edge_strokes(params.stroke);
+
+  for (auto &node : tree.nodes()) {
+    if (!is_inner(node)) { continue; }
+    node.data<CommonNodeData>().name = "";
+  }
 
   return layout->to_svg_document();
 }
@@ -140,7 +150,7 @@ void add_color_list_legend(SvgDocument               &svg_doc,
   auto svg_color_list = make_svg_color_list(colors, color_labels);
 
   // Height, as fraction of overall tree height.
-  double const legend_height = 0.5;
+  double const legend_height = 0.25;
 
   // Move it to the bottom right corner.
   if (params.shape == LayoutShape::kCircular) {
@@ -238,15 +248,20 @@ vector<NodeResult> get_node_results_from_json(const nlohmann::json &json) {
 
 void select_pie_chart_results(std::vector<NodeResult> &node_results,
                               size_t                   states,
+                              size_t                   max_areas,
                               size_t                   color_count) {
   std::vector<std::pair<size_t, double>> summed_values;
 
-  for (size_t i = 0; i < states; i++) { summed_values.emplace_back(i, 0.0); }
+  for (size_t i = 0, dist = 0; i < states;
+       i++, dist          = next_dist(dist, max_areas)) {
+    summed_values.emplace_back(dist, 0.0);
+  }
 
   for (const auto &n : node_results) {
-    for (const auto &sr : n.state_results) {
-      assert(summed_values[sr.distribution].first == sr.distribution);
-      summed_values[sr.distribution].second += sr.ratio;
+    for (size_t index = 0; index < n.state_results.size(); ++index) {
+      const auto &sr = n.state_results[index];
+      assert(summed_values[index].first == sr.distribution);
+      summed_values[index].second += sr.ratio;
     }
   }
 
@@ -269,7 +284,8 @@ void select_pie_chart_results(std::vector<NodeResult> &node_results,
       total -= sr.ratio;
       node_result.pie_chart_entries.push_back(pce);
     }
-    assert(total >= 0.0);
+    assert(total >= -std::numeric_limits<double>::epsilon());
+    if (total < 0.0) { total = 0.0; }
 
     PieChartEntry pce;
     pce.value       = total;
@@ -285,8 +301,20 @@ Attributes get_attributes(const nlohmann::json &json) {
   at.newick_tree = json["attributes"]["nodes-tree"];
   at.regions     = json["attributes"]["regions"];
   at.state_count = json["attributes"]["state-count"];
+  at.max_areas   = json["attributes"]["max-areas"];
 
   return at;
+}
+
+std::vector<size_t> produce_node_map(const Tree &tree) {
+  std::vector<size_t> node_map;
+  node_map.resize(tree.node_count(), std::numeric_limits<size_t>::max());
+  for (size_t node_index = 0; node_index < tree.node_count(); node_index++) {
+    const auto &node = tree.node_at(node_index);
+    if (is_leaf(node)) { continue; }
+    node_map[node_index] = std::stoi(node.data<CommonNodeData>().name);
+  }
+  return node_map;
 }
 
 int main(int argc, char **argv) {
@@ -308,26 +336,38 @@ int main(int argc, char **argv) {
   auto node_results = get_node_results_from_json(results_json);
   LOG_INFO << "Parsed results";
 
-  select_pie_chart_results(node_results, attributes.state_count, colors.size());
+  select_pie_chart_results(node_results,
+                           attributes.state_count,
+                           attributes.max_areas,
+                           colors.size());
   LOG_INFO << "Finished precomputation";
 
   // Read the tree.
-  auto const tree =
+  auto tree =
       CommonTreeNewickReader().read(from_string(attributes.newick_tree));
   LOG_INFO << "Found tree with " << leaf_node_count(tree)
            << " tips in tree file";
+
+  auto node_map = produce_node_map(tree);
+
+  // clear the names for inner nodes of the tree
+  for (auto &node : tree.nodes()) {
+    if (is_leaf(node)) { continue; }
+    node.data<CommonNodeData>().name.clear();
+  }
 
   // Set the tree params as needed.
   LayoutParameters params;
   // params.shape = LayoutShape::kCircular;
   params.shape           = LayoutShape::kRectangular;
-  params.type            = LayoutType::kPhylogram;
+  params.type            = LayoutType::kCladogram;
   params.ladderize       = true;
   params.stroke          = SvgStroke(Color(), 1.0);
   params.stroke.line_cap = utils::SvgStroke::LineCap::kRound;
 
   // Get the layout as an svg doc.
-  auto svg_doc = make_pie_chart_tree(tree, node_results, params, colors);
+  auto svg_doc =
+      make_pie_chart_tree(tree, node_results, node_map, params, colors);
 
   std::vector<string> color_labels;
   for (const auto &pce : node_results[0].pie_chart_entries) {
