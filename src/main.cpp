@@ -113,8 +113,11 @@ make_pie_chart_tree(Tree                                    &tree,
           tree, params.type, params.ladderize);
     }
     if (params.shape == LayoutShape::kRectangular) {
-      return utils::make_unique<RectangularLayout>(
+      auto layout = utils::make_unique<RectangularLayout>(
           tree, params.type, params.ladderize);
+      layout->width(1000);
+      layout->height(1000);
+      return layout;
     }
     throw std::runtime_error("Unknown Tree shape parameter.");
   }();
@@ -125,7 +128,7 @@ make_pie_chart_tree(Tree                                    &tree,
     if (is_leaf(layout->tree().node_at(i))) { continue; }
 
     node_shapes[i] = make_svg_pie_chart(
-        get_node_values(node_results, node_map[i]), colors, 10.0);
+        get_node_values(node_results, node_map[i]), colors, 15.0);
   }
   layout->set_node_shapes(node_shapes);
   layout->set_edge_strokes(params.stroke);
